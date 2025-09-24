@@ -6,11 +6,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, TypeVar, cast
 from warnings import warn
-
+import shutil
 import h5py
 import numpy as np
 import pandas as pd
 from scipy import sparse
+import os
 
 from anndata._warnings import OldFormatWarning
 
@@ -57,6 +58,11 @@ def write_h5ad(
     **kwargs,
 ) -> None:
     """See :meth:`~anndata.AnnData.write_h5ad`."""
+
+    # save to tmp file to avoid not being able to write to mounted S3 bucket
+    orig_output_path = filepath
+    filepath = "/tmp/data.h5ad"
+
     if isinstance(as_dense, str):
         as_dense = [as_dense]
     if "raw.X" in as_dense:
@@ -104,6 +110,9 @@ def write_h5ad(
         write_elem(f, "layers", dict(adata.layers), dataset_kwargs=dataset_kwargs)
         write_elem(f, "uns", dict(adata.uns), dataset_kwargs=dataset_kwargs)
 
+    # move to actual destination path
+    shutil.copyfile(filepath, orig_output_path)
+    os.unlink(filepath)
 
 def _write_x(
     f: h5py.Group,
@@ -264,13 +273,15 @@ def read_h5ad(
 
         def callback(func, elem_name: str, elem, iospec):
             if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
-                return AnnData(**{
-                    # This is covering up backwards compat in the anndata initializer
-                    # In most cases we should be able to call `func(elen[k])` instead
-                    k: read_dispatched(elem[k], callback)
-                    for k in elem
-                    if not k.startswith("raw.")
-                })
+                return AnnData(
+                    **{
+                        # This is covering up backwards compat in the anndata initializer
+                        # In most cases we should be able to call `func(elen[k])` instead
+                        k: read_dispatched(elem[k], callback)
+                        for k in elem
+                        if not k.startswith("raw.")
+                    }
+                )
             elif elem_name.startswith("/raw."):
                 return None
             elif elem_name == "/X" and "X" in as_sparse:
