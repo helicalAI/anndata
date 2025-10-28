@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 import os
-
+import tempfile
 from anndata._warnings import OldFormatWarning
 
 from .._core.anndata import AnnData
@@ -61,7 +61,10 @@ def write_h5ad(
 
     # save to tmp file to avoid not being able to write to mounted S3 bucket
     orig_output_path = filepath
-    filepath = "/tmp/data.h5ad"
+    
+    # Create a unique temporary file for this process
+    with tempfile.NamedTemporaryFile(suffix=".h5ad", delete=False, dir="/tmp") as temp_file:
+        filepath = temp_file.name
 
     if isinstance(as_dense, str):
         as_dense = [as_dense]
@@ -85,34 +88,39 @@ def write_h5ad(
     if adata.isbacked:  # close so that we can reopen below
         adata.file.close()
 
-    with h5py.File(filepath, mode) as f:
-        # TODO: Use spec writing system for this
-        # Currently can't use write_dispatched here because this function is also called to do an
-        # inplace update of a backed object, which would delete "/"
-        f = cast("h5py.Group", f["/"])
-        f.attrs.setdefault("encoding-type", "anndata")
-        f.attrs.setdefault("encoding-version", "0.1.0")
+    try:
+        with h5py.File(filepath, mode) as f:
+            # TODO: Use spec writing system for this
+            # Currently can't use write_dispatched here because this function is also called to do an
+            # inplace update of a backed object, which would delete "/"
+            f = cast("h5py.Group", f["/"])
+            f.attrs.setdefault("encoding-type", "anndata")
+            f.attrs.setdefault("encoding-version", "0.1.0")
 
-        _write_x(
-            f,
-            adata,  # accessing adata.X reopens adata.file if it’s backed
-            is_backed=adata.isbacked and adata.filename == filepath,
-            as_dense=as_dense,
-            dataset_kwargs=dataset_kwargs,
-        )
-        _write_raw(f, adata.raw, as_dense=as_dense, dataset_kwargs=dataset_kwargs)
-        write_elem(f, "obs", adata.obs, dataset_kwargs=dataset_kwargs)
-        write_elem(f, "var", adata.var, dataset_kwargs=dataset_kwargs)
-        write_elem(f, "obsm", dict(adata.obsm), dataset_kwargs=dataset_kwargs)
-        write_elem(f, "varm", dict(adata.varm), dataset_kwargs=dataset_kwargs)
-        write_elem(f, "obsp", dict(adata.obsp), dataset_kwargs=dataset_kwargs)
-        write_elem(f, "varp", dict(adata.varp), dataset_kwargs=dataset_kwargs)
-        write_elem(f, "layers", dict(adata.layers), dataset_kwargs=dataset_kwargs)
-        write_elem(f, "uns", dict(adata.uns), dataset_kwargs=dataset_kwargs)
+            _write_x(
+                f,
+                adata,  # accessing adata.X reopens adata.file if it's backed
+                is_backed=adata.isbacked and adata.filename == filepath,
+                as_dense=as_dense,
+                dataset_kwargs=dataset_kwargs,
+            )
+            _write_raw(f, adata.raw, as_dense=as_dense, dataset_kwargs=dataset_kwargs)
+            write_elem(f, "obs", adata.obs, dataset_kwargs=dataset_kwargs)
+            write_elem(f, "var", adata.var, dataset_kwargs=dataset_kwargs)
+            write_elem(f, "obsm", dict(adata.obsm), dataset_kwargs=dataset_kwargs)
+            write_elem(f, "varm", dict(adata.varm), dataset_kwargs=dataset_kwargs)
+            write_elem(f, "obsp", dict(adata.obsp), dataset_kwargs=dataset_kwargs)
+            write_elem(f, "varp", dict(adata.varp), dataset_kwargs=dataset_kwargs)
+            write_elem(f, "layers", dict(adata.layers), dataset_kwargs=dataset_kwargs)
+            write_elem(f, "uns", dict(adata.uns), dataset_kwargs=dataset_kwargs)
 
-    # move to actual destination path
-    shutil.copyfile(filepath, orig_output_path)
-    os.unlink(filepath)
+        # move to actual destination path
+        shutil.copyfile(filepath, orig_output_path)
+        
+    finally:
+        # Always clean up the temp file, even if copy fails
+        if os.path.exists(filepath):
+            os.unlink(filepath)
 
 def _write_x(
     f: h5py.Group,
