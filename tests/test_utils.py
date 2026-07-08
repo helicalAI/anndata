@@ -8,7 +8,35 @@ from scipy import sparse
 
 import anndata as ad
 from anndata.tests.helpers import gen_typed_df
-from anndata.utils import make_index_unique
+from anndata.utils import (
+    _IMPORT_NAME_ALLOWED_ROOTS,
+    import_name,
+    make_index_unique,
+)
+
+
+def test_import_name_resolves_allowlisted_root() -> None:
+    assert import_name("anndata.AnnData") is ad.AnnData
+
+
+def test_import_name_resolves_nested_submodule() -> None:
+    from anndata._core.anndata import AnnData
+
+    # Exercises the `import_module(f"{obj.__name__}.{name}")` submodule loop,
+    # not just the trailing getattr path.
+    assert import_name("anndata._core.anndata.AnnData") is AnnData
+
+
+def test_import_name_allows_ci_scripts_root() -> None:
+    # Doctests are collected from `ci/scripts` (see `testpaths`), so pytest
+    # produces node names rooted at `ci`; the allowlist must permit them.
+    assert "ci" in _IMPORT_NAME_ALLOWED_ROOTS
+
+
+@pytest.mark.parametrize("name", ["os.system", "subprocess.run", "builtins.eval"])
+def test_import_name_rejects_disallowed_root(name: str) -> None:
+    with pytest.raises(ValueError, match="Refusing to import"):
+        import_name(name)
 
 
 def test_make_index_unique() -> None:

@@ -253,6 +253,11 @@ class SettingsManager:
         """
         option_type = self._registered_options[option].type
         # Update annotations for type checking.
+        # `option_type` is always an internal type object supplied at
+        # registration time (never a user-controlled string), and these
+        # annotations are never passed to `typing.get_type_hints`; they exist
+        # only for IPython tab-completion signatures.
+        # nosemgrep: python.lang.security.audit.dangerous-annotations-usage.dangerous-annotations-usage
         self.override.__annotations__[option] = option_type
         # __signature__ needs to be updated for tab autocompletion in IPython.
         # See https://github.com/ipython/ipython/issues/11624 for inspiration.
