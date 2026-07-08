@@ -22,15 +22,36 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+#: Top-level packages that :func:`import_name` is permitted to import from.
+#: ``import_name`` only ever receives internal, developer-controlled dotted
+#: names (doctest node names collected from this project's own source), so we
+#: restrict the root module to a known allowlist as defense-in-depth in case the
+#: dynamic import is ever reached with an untrusted value. The roots mirror the
+#: ``testpaths`` from which pytest collects doctests: ``anndata`` package
+#: docstrings, ``scanpy`` (imported by the doctest fixture), and the ``ci``
+#: helper scripts (e.g. ``ci/scripts/min-deps.py``).
+_IMPORT_NAME_ALLOWED_ROOTS = frozenset({"anndata", "scanpy", "ci"})
+
 
 def import_name(full_name: str) -> Any:
     from importlib import import_module
 
     parts = full_name.split(".")
-    obj = import_module(parts[0])
+    root = parts[0]
+    if root not in _IMPORT_NAME_ALLOWED_ROOTS:
+        msg = (
+            f"Refusing to import {root!r}: import_name only supports the "
+            f"allowlisted root packages {sorted(_IMPORT_NAME_ALLOWED_ROOTS)}."
+        )
+        raise ValueError(msg)
+    # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+    obj = import_module(root)  # root validated against the allowlist above
     for _i, name in enumerate(parts[1:]):
         i = _i
         try:
+            # `obj` is a module rooted in an allowlisted package, so this only
+            # ever resolves submodules within that package.
+            # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
             obj = import_module(f"{obj.__name__}.{name}")
         except ModuleNotFoundError:
             break
