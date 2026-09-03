@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  pull_request:
+
+# Cancel the job if new commits are pushed: https://stackoverflow.com/q/66335225/247482
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo no-test
